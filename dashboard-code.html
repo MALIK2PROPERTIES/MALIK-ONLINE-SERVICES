@@ -1,0 +1,194 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Malik Online Services - Admin Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+body{font-family:Arial,sans-serif;background:#f3f5f9;margin:0;color:#172033}
+header{background:#123b66;color:white;padding:22px}
+header h2{margin:0 0 8px}
+main{max-width:1100px;margin:22px auto;padding:0 15px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.card,section{background:white;padding:18px;border-radius:10px;margin-bottom:15px;box-shadow:0 2px 8px #00000010}
+.number{font-size:26px;font-weight:bold;margin-top:10px}
+button{padding:11px 15px;border:0;border-radius:6px;cursor:pointer;margin:4px;background:#145da0;color:white}
+button:hover{opacity:.88}
+#logout{background:#b42318}
+#message{padding:12px;background:white;border-radius:8px;margin-bottom:15px;overflow-wrap:anywhere}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;border-bottom:1px solid #e5e7eb;padding:10px;white-space:nowrap}
+th{background:#f0f4f8}
+.small{color:#64748b;font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <h2>MALIK ONLINE SERVICES</h2>
+  <div>Admin Dashboard</div>
+  <button id="logout">Logout</button>
+</header>
+
+<main>
+  <div id="message">Checking Admin access...</div>
+
+  <div class="cards">
+    <div class="card">Applications<div class="number" id="count-applications">—</div></div>
+    <div class="card">Services<div class="number" id="count-services">—</div></div>
+    <div class="card">Customers<div class="number" id="count-customers">—</div></div>
+    <div class="card">Payments<div class="number" id="count-payments">—</div></div>
+  </div>
+
+  <section>
+    <h3>Manage Records</h3>
+    <button data-table="applications">Applications</button>
+    <button data-table="services">Services</button>
+    <button data-table="customers">Customers</button>
+    <button data-table="payments">Payments</button>
+    <button id="refresh">Refresh Data</button>
+    <p class="small">This first version displays records. Editing, adding and deleting records will be added after access and database connections are verified.</p>
+  </section>
+
+  <section>
+    <h3 id="table-title">Applications</h3>
+    <div id="table-message" class="small">Loading...</div>
+    <div class="tablewrap">
+      <table>
+        <thead id="table-head"></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+const SUPABASE_URL = "https://akajbjwkclcwdvibarah.supabase.co";
+const SUPABASE_KEY = "sb_publishable_jWEXNf3_eUxQ3ZaisT4kNA_aeJVddoz";
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const allowedTables = {
+  applications: ["id","application_no","customer_id","service_id","status","created_at"],
+  services: ["id","name","description","price","is_active","created_at"],
+  customers: ["id","name","phone","email","address","created_at"],
+  payments: ["id","customer_id","application_id","amount","payment_method","status","created_at"]
+};
+
+let currentTable = "applications";
+
+function message(text) {
+  document.getElementById("message").textContent = text;
+}
+
+function cell(row, value) {
+  const td = document.createElement("td");
+  td.textContent = value == null ? "" : String(value);
+  row.appendChild(td);
+}
+
+async function loadTable(name) {
+  if (!allowedTables[name]) return;
+  currentTable = name;
+  document.getElementById("table-title").textContent =
+    name.charAt(0).toUpperCase() + name.slice(1);
+  document.getElementById("table-message").textContent = "Loading records...";
+  document.getElementById("table-head").replaceChildren();
+  document.getElementById("table-body").replaceChildren();
+
+  const {data, error} = await db
+    .from(name)
+    .select(allowedTables[name].join(","))
+    .order("created_at", {ascending:false})
+    .limit(100);
+
+  if (error) {
+    document.getElementById("table-message").textContent =
+      "Could not load records: " + error.message;
+    return;
+  }
+
+  const head = document.getElementById("table-head");
+  const trHead = document.createElement("tr");
+  allowedTables[name].forEach(key => {
+    const th = document.createElement("th");
+    th.textContent = key;
+    trHead.appendChild(th);
+  });
+  head.appendChild(trHead);
+
+  const body = document.getElementById("table-body");
+  (data || []).forEach(item => {
+    const tr = document.createElement("tr");
+    allowedTables[name].forEach(key => cell(tr, item[key]));
+    body.appendChild(tr);
+  });
+
+  document.getElementById("table-message").textContent =
+    (data || []).length
+      ? "Showing " + data.length + " record(s), maximum 100."
+      : "No records yet. The table is connected, but it has no records.";
+}
+
+async function checkAdmin() {
+  const {data, error} = await db.auth.getSession();
+  const session = data?.session;
+
+  if (error || !session) {
+    message("Please sign in first.");
+    document.getElementById("table-message").textContent =
+      "Open the Admin Login page and sign in.";
+    const link = document.createElement("a");
+    link.href = "/admin.html";
+    link.textContent = " Go to Admin Login";
+    document.getElementById("message").appendChild(link);
+    return;
+  }
+
+  const {data:userData, error:userError} = await db.auth.getUser();
+  if (userError || !userData?.user) {
+    message("Could not verify your user. Please sign in again.");
+    return;
+  }
+
+  const role = userData.user.app_metadata?.role;
+  if (role !== "admin") {
+    message("Access denied: this account does not have the admin role in its current session. Sign out and sign in again after verifying the role.");
+    return;
+  }
+
+  message("Admin verified: " + userData.user.email);
+  await loadCounts();
+  await loadTable(currentTable);
+}
+
+async function loadCounts() {
+  for (const name of Object.keys(allowedTables)) {
+    const {count, error} = await db
+      .from(name)
+      .select("id", {count:"exact", head:true});
+
+    document.getElementById("count-" + name).textContent =
+      error ? "Error" : String(count ?? 0);
+  }
+}
+
+document.querySelectorAll("[data-table]").forEach(button => {
+  button.addEventListener("click", () => loadTable(button.dataset.table));
+});
+
+document.getElementById("refresh").addEventListener("click", async () => {
+  await loadCounts();
+  await loadTable(currentTable);
+});
+
+document.getElementById("logout").addEventListener("click", async () => {
+  await db.auth.signOut();
+  window.location.href = "/admin.html";
+});
+
+checkAdmin();
+</script>
+</body>
+</html>
